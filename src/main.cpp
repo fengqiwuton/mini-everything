@@ -11,12 +11,13 @@
 
 namespace {
 void help() {
-    std::cout << "MiniEverything 0.2.0\n"
-        "  mini-everything scan <directory> --db <index.db> [--profile]\n"
+    std::cout << "MiniEverything 0.3.0\n"
+        "  mini-everything scan <directory> --db <index.db> [--profile] [--db-cache-mib 64]\n"
         "  mini-everything search <text> --db <index.db> [--ext pdf] [--limit 100]\n"
         "  mini-everything --help | --version\n"
         "Search is a literal substring match (ASCII case-insensitive).\n"
         "Database must be outside the scanned directory. Links are skipped.\n"
+        "Scan page-cache target: 1..1024 MiB, default 64 (not total process memory).\n"
         "Exit codes: 0 success, 1 operation failed, 2 invalid arguments.\n";
 }
 std::string escaped(const std::string& text) {
@@ -34,6 +35,7 @@ int run(const std::vector<std::string>& args) {
         throw std::invalid_argument("Expected scan or search; use --help");
     std::string database;
     mini::SearchOptions options;
+    mini::ScanOptions scan_options;
     options.text = args[1];
     std::set<std::string> seen;
     bool profile = false;
@@ -45,6 +47,11 @@ int run(const std::vector<std::string>& args) {
         if (i + 1 == args.size()) throw std::invalid_argument("Missing value: " + flag);
         const auto& value = args[i + 1];
         if (flag == "--db") database = value;
+        else if (args[0] == "scan" && flag == "--db-cache-mib") {
+            const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), scan_options.db_cache_mib);
+            if (error != std::errc{} || end != value.data() + value.size() || scan_options.db_cache_mib < 1 || scan_options.db_cache_mib > 1024)
+                throw std::invalid_argument("--db-cache-mib must be an integer between 1 and 1024");
+        }
         else if (args[0] == "search" && flag == "--ext") options.extension = value;
         else if (args[0] == "search" && flag == "--limit") {
             const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), options.limit);
@@ -57,13 +64,20 @@ int run(const std::vector<std::string>& args) {
     const auto db_path = mini::detail::from_utf8(database);
     const auto start = std::chrono::steady_clock::now();
     if (args[0] == "scan") {
-        const auto result = mini::scan(mini::detail::from_utf8(args[1]), db_path);
+        const auto result = mini::scan(mini::detail::from_utf8(args[1]), db_path, scan_options);
         std::cout << "Indexed " << result.files << " files, " << result.directories
             << " directories; skipped " << result.skipped << " links/unsupported entries.\n";
         if (profile) std::cerr << std::fixed << std::setprecision(2)
-            << "Profile: prepare_ms=" << result.timings.prepare_ms << " metadata_ms=" << result.timings.metadata_ms
+            << "Profile: prepare_ms=" << result.timings.prepare_ms
+            << " open_ms=" << result.timings.open_ms << " transaction_ms=" << result.timings.transaction_ms
+            << " schema_ms=" << result.timings.schema_ms << " roots_ms=" << result.timings.roots_ms
+            << " clear_ms=" << result.timings.clear_ms << " statements_ms=" << result.timings.statements_ms
+            << " metadata_ms=" << result.timings.metadata_ms
             << " identity_ms=" << result.timings.identity_ms << " write_ms=" << result.timings.write_ms
-            << " commit_ms=" << result.timings.commit_ms << " identity_checks=" << result.identity_checks << '\n';
+            << " commit_ms=" << result.timings.commit_ms << " identity_checks=" << result.identity_checks
+            << " db_cache_mib=" << result.database_stats.cache_mib << " cache_hits=" << result.database_stats.cache_hits
+            << " cache_misses=" << result.database_stats.cache_misses << " cache_writes=" << result.database_stats.cache_writes
+            << " cache_spills=" << result.database_stats.cache_spills << '\n';
     } else {
         const auto results = mini::search(db_path, options);
         std::cout << "TYPE\tSIZE\tMODIFIED_UNIX\tNAME\tPATH\n";

@@ -1,4 +1,5 @@
 #include "mini/index.hpp"
+#include "../src/sqlite.hpp"
 #include <sqlite3.h>
 #include <chrono>
 #include <fstream>
@@ -157,6 +158,62 @@ void database_hardlink() {
     require(mini::search(f.db, {"alias.db"}).empty(), "database hardlink was indexed");
     require(mini::search(f.db, {"old.txt"}).size() == 1, "hardlink rejection lost old index");
 }
+void scan_cache_profile() {
+    Fixture f; f.file("child/one.txt");
+    const auto initial = mini::scan(f.root, f.db);
+    require(initial.database_stats.cache_mib == 64 && initial.timings.clear_ms == 0, "new index must use default cache and skip cleanup");
+    fs::remove(f.root / "child/one.txt"); f.file("child/two.txt", "12345");
+    const auto result = mini::scan(f.root, f.db, {2});
+    require(result.database_stats.cache_mib == 2 && result.timings.clear_ms > 0, "rescan cache or cleanup timing missing");
+    const auto& t = result.timings;
+    require(t.prepare_ms + 0.01 >= t.open_ms+t.transaction_ms+t.schema_ms+t.roots_ms+t.clear_ms+t.statements_ms,
+        "prepare timing must contain its subphases");
+    require(result.database_stats.cache_hits > 0 && result.database_stats.cache_writes > 0, "cache statistics must include committed scan");
+    const auto found = mini::search(f.db, {"two.txt"});
+    require(found.size() == 1 && found[0].size == 5 && mini::search(f.db, {"one.txt"}).empty(), "custom cache rescan lost changes");
+    for (const int invalid : {0, -1, 1025}) rejects([&] { mini::scan(f.root, f.db, {invalid}); });
+    require(mini::search(f.db, {"two.txt"}).size() == 1, "invalid cache modified index");
+    const auto missing = f.base / "missing.db";
+    rejects([&] { mini::scan(f.root, missing, {0}); });
+    require(!fs::exists(missing), "invalid cache created database");
+}
+void database_cache_policy() {
+    Fixture f; f.file("one.txt"); f.db = f.base / fs::path(u8"缓存索引.db"); mini::scan(f.root, f.db);
+    const auto native_utf8 = f.db.u8string();
+    const std::string database_utf8(reinterpret_cast<const char*>(native_utf8.data()), native_utf8.size());
+    auto scalar = [](mini::detail::Database& db, const char* sql) {
+        mini::detail::Statement statement(db, sql); require(statement.row(), "missing pragma value"); return statement.number(0);
+    };
+    {
+        mini::detail::Database db(database_utf8, true, 64);
+        require(scalar(db, "PRAGMA cache_size") == -65536, "cache target not applied");
+        require(scalar(db, "PRAGMA foreign_keys") == 1 && scalar(db, "PRAGMA trusted_schema") == 0, "cache changed integrity policy");
+        require(scalar(db, "PRAGMA synchronous") == 2 && scalar(db, "PRAGMA cache_spill") > 0, "cache changed durability or spill policy");
+        mini::detail::Statement mode(db, "PRAGMA journal_mode"); require(mode.row() && mode.text(0) == "delete", "cache changed journal mode");
+        rejects([&] { db.exec("INSERT INTO nodes(root_id,parent_id,name,full_path,extension,is_directory,size,modified_at) VALUES(999999,NULL,'bad','bad','',0,0,0)"); });
+    }
+    mini::detail::Database reopened(database_utf8, false);
+    require(scalar(reopened, "PRAGMA cache_size") != -65536, "scan cache leaked into future read connections");
+    require(mini::search(f.db, {"one.txt"}).size() == 1, "cache policy damaged persisted index");
+}
+void rescan_multiple_roots() {
+    Fixture f; f.file("old/leaf.txt");
+    const auto sibling = f.base / "sibling"; fs::create_directories(sibling);
+    { std::ofstream out(sibling / "keep.txt"); out << "keep"; }
+    mini::scan(f.root, f.db); mini::scan(sibling, f.db);
+    fs::remove_all(f.root / "old"); f.file("new/leaf.txt", "longer");
+    mini::scan(f.root, f.db, {1});
+    const auto parents = mini::search(f.db, {"new"}); const auto leaves = mini::search(f.db, {"leaf.txt"});
+    require(mini::search(f.db, {"old"}).empty() && mini::search(f.db, {"keep.txt"}).size() == 1, "rescan erased other root or retained stale nodes");
+    require(parents.size() == 1 && leaves.size() == 1 && leaves[0].parent_id == parents[0].id, "rescan broke parent relationships");
+    sql(f.db, "CREATE TRIGGER fail_insert BEFORE INSERT ON nodes BEGIN SELECT RAISE(ABORT, 'test disk failure'); END;");
+    f.file("failed.txt"); rejects([&] { mini::scan(f.root, f.db, {1}); });
+    require(mini::search(f.db, {"failed.txt"}).empty() && mini::search(f.db, {"keep.txt"}).size() == 1,
+        "failed rescan published changes or lost sibling");
+    const auto preserved = mini::search(f.db, {"leaf.txt"});
+    require(preserved.size() == 1 && preserved[0].id == leaves[0].id && preserved[0].parent_id == leaves[0].parent_id,
+        "failed rescan lost original node identities");
+}
 #ifdef _WIN32
 struct SkipTest : std::runtime_error { using std::runtime_error::runtime_error; };
 void windows_unc_alias() {
@@ -254,7 +311,9 @@ int main(int argc, char** argv) {
         {"literal_search", literal_search}, {"filters", filters}, {"unicode", unicode},
         {"overlap", overlap}, {"invalid_root", invalid_root}, {"database_inside", database_inside},
         {"deep_tree", deep_tree}, {"rollback", rollback}, {"foreign_database", foreign_database},
-        {"schema_version", schema_version}, {"database_hardlink", database_hardlink}
+        {"schema_version", schema_version}, {"database_hardlink", database_hardlink},
+        {"scan_cache_profile", scan_cache_profile}, {"database_cache_policy", database_cache_policy},
+        {"rescan_multiple_roots", rescan_multiple_roots}
 #ifdef _WIN32
         , {"windows_extended_input", windows_extended_input}, {"windows_long_tree", windows_long_tree}
         , {"windows_identity_guard", windows_identity_guard}, {"windows_read_failure", windows_read_failure}

@@ -18,10 +18,23 @@ struct Node {
 
 struct ScanTimings {
     double prepare_ms{}; // database open, schema and previous-root cleanup
+    double open_ms{};
+    double transaction_ms{}; // includes waiting for the write lock
+    double schema_ms{};
+    double roots_ms{};
+    double clear_ms{};
+    double statements_ms{};
     double metadata_ms{}; // enumeration and metadata
     double identity_ms{};
     double write_ms{}; // SQL and serialization
     double commit_ms{};
+};
+struct ScanDatabaseStats {
+    int cache_mib{}; // requested page-cache target, not total process memory
+    std::int64_t cache_hits{};
+    std::int64_t cache_misses{};
+    std::int64_t cache_writes{};
+    std::int64_t cache_spills{};
 };
 struct ScanResult {
     std::int64_t files{};
@@ -29,6 +42,10 @@ struct ScanResult {
     std::int64_t skipped{}; // links / unsupported file types
     std::int64_t identity_checks{}; // per-file identity comparisons
     ScanTimings timings;
+    ScanDatabaseStats database_stats;
+};
+struct ScanOptions {
+    int db_cache_mib{64}; // 1..1024, connection-local
 };
 
 struct SearchOptions {
@@ -38,6 +55,6 @@ struct SearchOptions {
 };
 
 // Paths at the public boundary are native filesystem paths; stored text is UTF-8.
-ScanResult scan(const std::filesystem::path& root, const std::filesystem::path& database);
+ScanResult scan(const std::filesystem::path& root, const std::filesystem::path& database, const ScanOptions& options = {});
 std::vector<Node> search(const std::filesystem::path& database, const SearchOptions& options);
 } // namespace mini

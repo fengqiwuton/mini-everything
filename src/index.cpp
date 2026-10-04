@@ -82,8 +82,10 @@ std::string pattern(const std::string& text) {
 }
 } // namespace
 
-ScanResult scan(const std::filesystem::path& root_path, const std::filesystem::path& database) {
+ScanResult scan(const std::filesystem::path& root_path, const std::filesystem::path& database, const ScanOptions& options) {
     using namespace detail;
+    if (options.db_cache_mib < 1 || options.db_cache_mib > 1024)
+        throw std::invalid_argument("Database cache must be between 1 and 1024 MiB");
     const auto root = normalized(root_path);
     const auto db_path = normalized(database);
 #ifdef _WIN32
@@ -95,18 +97,24 @@ ScanResult scan(const std::filesystem::path& root_path, const std::filesystem::p
 #endif
     if (contains(root, db_path)) throw std::invalid_argument("Database must be outside the scanned directory");
     const auto prepare_start = std::chrono::steady_clock::now();
-    Database db(utf8(db_path), true);
     ScanResult result;
+    Database db(utf8(db_path), true, options.db_cache_mib);
+    result.timings.open_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - prepare_start).count();
+    result.database_stats.cache_mib = options.db_cache_mib;
 #ifdef _WIN32
     const auto guard_start = std::chrono::steady_clock::now();
     IndexFileGuard guard(db_path, is_local_drive_path(root) && is_local_drive_path(db_path));
     result.timings.identity_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - guard_start).count();
 #endif
+    const auto transaction_start = std::chrono::steady_clock::now();
     Transaction tx(db);
-    schema(db, true);
+    result.timings.transaction_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - transaction_start).count();
+    { Timer timer(result.timings.schema_ms); schema(db, true); }
 
     std::int64_t root_id = 0;
+    bool replacing = false;
     {
+        Timer timer(result.timings.roots_ms);
         Statement roots(db, "SELECT id,path FROM roots");
         while (roots.row()) {
             const auto existing = from_utf8(roots.text(1));
@@ -114,18 +122,22 @@ ScanResult scan(const std::filesystem::path& root_path, const std::filesystem::p
             if (a && b) root_id = roots.number(0);
             else if (a || b) throw std::invalid_argument("Overlapping index roots are not supported");
         }
+        if (root_id == 0) {
+            Statement add(db, "INSERT INTO roots(path) VALUES(?)");
+            add.bind(1, utf8(root)); add.run(); root_id = sqlite3_last_insert_rowid(db.handle);
+        } else replacing = true;
     }
-    if (root_id == 0) {
-        Statement add(db, "INSERT INTO roots(path) VALUES(?)");
-        add.bind(1, utf8(root)); add.run(); root_id = sqlite3_last_insert_rowid(db.handle);
-    } else {
+    if (replacing) {
+        Timer timer(result.timings.clear_ms);
         Statement clear(db, "DELETE FROM nodes WHERE root_id=?");
         clear.bind(1, root_id); clear.run();
     }
 
+    const auto statements_start = std::chrono::steady_clock::now();
     Statement insert(db, R"sql(INSERT INTO nodes
         (root_id,parent_id,name,full_path,extension,is_directory,size,modified_at)
         VALUES(?,?,?,?,?,?,?,?))sql");
+    result.timings.statements_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - statements_start).count();
     result.timings.prepare_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - prepare_start).count()
         - result.timings.identity_ms;
     auto add_node = [&](const EntryMetadata& metadata, std::int64_t parent) {
@@ -207,6 +219,10 @@ ScanResult scan(const std::filesystem::path& root_path, const std::filesystem::p
     Statement stamp(db, "UPDATE roots SET scanned_at=unixepoch() WHERE id=?");
     stamp.bind(1, root_id); stamp.run();
     { Timer timer(result.timings.commit_ms); tx.commit(); }
+    result.database_stats.cache_hits = db.cache_stat(SQLITE_DBSTATUS_CACHE_HIT);
+    result.database_stats.cache_misses = db.cache_stat(SQLITE_DBSTATUS_CACHE_MISS);
+    result.database_stats.cache_writes = db.cache_stat(SQLITE_DBSTATUS_CACHE_WRITE);
+    result.database_stats.cache_spills = db.cache_stat(SQLITE_DBSTATUS_CACHE_SPILL);
     return result;
 }
 

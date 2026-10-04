@@ -8,7 +8,8 @@ namespace mini::detail {
 class Database {
 public:
     sqlite3* handle{};
-    Database(const std::string& path, bool writable) {
+    Database(const std::string& path, bool writable, int cache_mib = 0) {
+        if (cache_mib < 0 || cache_mib > 1024) throw std::invalid_argument("Database cache must be between 1 and 1024 MiB (0 keeps the default)");
         const int flags = writable ? SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE : SQLITE_OPEN_READONLY;
         const int rc = sqlite3_open_v2(path.c_str(), &handle, flags, nullptr);
         if (rc != SQLITE_OK) {
@@ -17,12 +18,20 @@ public:
             throw std::runtime_error("Open index: " + error);
         }
         sqlite3_busy_timeout(handle, 5000);
-        try { exec("PRAGMA foreign_keys=ON; PRAGMA trusted_schema=OFF;"); }
+        try {
+            exec("PRAGMA foreign_keys=ON; PRAGMA trusted_schema=OFF;");
+            if (cache_mib != 0) exec("PRAGMA cache_size=-" + std::to_string(cache_mib * 1024));
+        }
         catch (...) { sqlite3_close(handle); throw; }
     }
     ~Database() { sqlite3_close(handle); }
     Database(const Database&) = delete;
     Database& operator=(const Database&) = delete;
+    std::int64_t cache_stat(int operation) const noexcept {
+        int current = 0, high = 0;
+        if (sqlite3_db_status(handle, operation, &current, &high, 0) != SQLITE_OK) return -1;
+        return current;
+    }
     void exec(const std::string& sql) {
         if (sqlite3_exec(handle, sql.c_str(), nullptr, nullptr, nullptr) != SQLITE_OK)
             throw std::runtime_error("SQLite: " + std::string(sqlite3_errmsg(handle)));

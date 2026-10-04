@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(MiniEverything VERSION 0.2.0 LANGUAGES C CXX)
+project(MiniEverything VERSION 0.3.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -36,13 +36,17 @@ include(CTest)
 if(BUILD_TESTING)
     add_executable(mini_tests tests/index_tests.cpp)
     target_link_libraries(mini_tests PRIVATE mini_core sqlite3)
-    foreach(case IN ITEMS scan_tree persistence rescan literal_search filters unicode overlap invalid_root database_inside deep_tree rollback foreign_database schema_version database_hardlink)
+    foreach(case IN ITEMS scan_tree persistence rescan literal_search filters unicode overlap invalid_root database_inside deep_tree rollback foreign_database schema_version database_hardlink scan_cache_profile database_cache_policy rescan_multiple_roots)
         add_test(NAME ${case} COMMAND mini_tests ${case})
     endforeach()
     add_test(NAME cli COMMAND ${CMAKE_COMMAND}
         -DAPP=$<TARGET_FILE:mini-everything>
         -DTEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/cli-fixture
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cli_test.cmake)
+    add_test(NAME cli_scan_cache COMMAND ${CMAKE_COMMAND}
+        -DAPP=$<TARGET_FILE:mini-everything>
+        -DTEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/cache-cli-fixture
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cache_cli_test.cmake)
     if(WIN32)
         add_test(NAME windows_extended_input COMMAND mini_tests windows_extended_input)
         add_test(NAME windows_long_tree COMMAND mini_tests windows_long_tree)
