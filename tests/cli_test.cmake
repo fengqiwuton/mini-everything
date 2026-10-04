@@ -1,0 +1,23 @@
+file(MAKE_DIRECTORY "${TEST_DIR}/root")
+file(WRITE "${TEST_DIR}/root/hello.txt" "hello")
+execute_process(COMMAND "${APP}" scan "${TEST_DIR}/root" --db "${TEST_DIR}/index.db"
+    RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
+if(NOT result EQUAL 0)
+    message(FATAL_ERROR "scan failed: ${output} ${error}")
+endif()
+execute_process(COMMAND "${APP}" search HELLO --db "${TEST_DIR}/index.db" --ext txt
+    RESULT_VARIABLE result OUTPUT_VARIABLE output)
+if(NOT result EQUAL 0 OR NOT output MATCHES "hello.txt")
+    message(FATAL_ERROR "search did not find hello.txt: ${output}")
+endif()
+foreach(limit IN ITEMS 0 -1 abc 1junk 10001)
+    execute_process(COMMAND "${APP}" search hello --db "${TEST_DIR}/index.db" --limit "${limit}"
+        RESULT_VARIABLE result OUTPUT_QUIET ERROR_QUIET)
+    if(NOT result EQUAL 2)
+        message(FATAL_ERROR "invalid limit ${limit} should return usage error 2; got ${result}")
+    endif()
+endforeach()
+execute_process(COMMAND "${APP}" --help RESULT_VARIABLE result OUTPUT_VARIABLE output)
+if(NOT result EQUAL 0 OR NOT output MATCHES "scan")
+    message(FATAL_ERROR "help failed")
+endif()
