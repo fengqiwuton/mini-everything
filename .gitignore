@@ -1,0 +1,44 @@
+# CMake / C++ build output
+/build/
+/build-*/
+/out/
+/cmake-build-*/
+CMakeUserPresets.json
+*.obj
+*.o
+*.pdb
+*.ilk
+*.exe
+*.dll
+*.lib
+*.a
+*.so
+
+# Local IDE state
+/.vs/
+/.idea/
+*.user
+*.suo
+
+# Runtime indexes and logs
+/data/
+/logs/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+*.log
+
+# Machine-specific configuration and secrets
+.env
+.env.*
+!.env.example
+*.local.json
+
+# Local code index
+/.codegraph/
