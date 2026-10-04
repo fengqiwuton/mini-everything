@@ -54,7 +54,7 @@ inline fs::path normalized(const fs::path& path) {
         if (existing.size() <= root_length) throw std::runtime_error("Path has no accessible volume");
         const auto separator = existing.find_last_of(L'\\');
         suffix.push_back(existing.substr(separator + 1));
-        existing.resize(std::max(separator, root_length));
+        existing.resize((std::max)(separator, root_length)); // Windows headers may define max as a macro.
     }
     std::wstring final_path(32768, L'\0');
     HANDLE handle = CreateFileW(existing.c_str(), 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
