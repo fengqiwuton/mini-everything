@@ -16,10 +16,19 @@ struct Node {
     std::int64_t modified_at{}; // Unix seconds
 };
 
+struct ScanTimings {
+    double prepare_ms{}; // database open, schema and previous-root cleanup
+    double metadata_ms{}; // enumeration and metadata
+    double identity_ms{};
+    double write_ms{}; // SQL and serialization
+    double commit_ms{};
+};
 struct ScanResult {
     std::int64_t files{};
     std::int64_t directories{}; // includes root
     std::int64_t skipped{}; // links / unsupported file types
+    std::int64_t identity_checks{}; // per-file identity comparisons
+    ScanTimings timings;
 };
 
 struct SearchOptions {

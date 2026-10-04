@@ -1,6 +1,7 @@
 #include "mini/index.hpp"
 #include "paths.hpp"
 #include "sqlite.hpp"
+#include "windows_fs.hpp"
 #include <chrono>
 #include <limits>
 #include <utility>
@@ -9,6 +10,28 @@ namespace mini {
 namespace {
 using namespace detail;
 constexpr std::int64_t application_id = 0x4d454958; // MEIX
+class Timer {
+    double& elapsed_;
+    std::chrono::steady_clock::time_point start_{std::chrono::steady_clock::now()};
+public:
+    explicit Timer(double& elapsed) : elapsed_(elapsed) {}
+    ~Timer() { elapsed_ += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start_).count(); }
+};
+#ifndef _WIN32
+struct EntryMetadata {
+    fs::path path;
+    bool directory{};
+    bool skipped{};
+    std::uint64_t size{};
+    std::int64_t modified_at{};
+};
+EntryMetadata read_metadata(const fs::path& path) {
+    const bool directory = fs::is_directory(path);
+    const auto modified = fs::file_time_type::clock::to_sys(fs::last_write_time(path));
+    return {path, directory, false, directory ? 0 : fs::file_size(path),
+        std::chrono::duration_cast<std::chrono::seconds>(modified.time_since_epoch()).count()};
+}
+#endif
 
 std::int64_t scalar(Database& db, const char* sql) {
     Statement stmt(db, sql);
@@ -63,9 +86,22 @@ ScanResult scan(const std::filesystem::path& root_path, const std::filesystem::p
     using namespace detail;
     const auto root = normalized(root_path);
     const auto db_path = normalized(database);
+#ifdef _WIN32
+    const DWORD attributes = GetFileAttributesW(root.c_str());
+    if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0)
+        throw std::invalid_argument("Scan root must be an existing directory");
+#else
     if (!fs::is_directory(root)) throw std::invalid_argument("Scan root must be an existing directory");
+#endif
     if (contains(root, db_path)) throw std::invalid_argument("Database must be outside the scanned directory");
+    const auto prepare_start = std::chrono::steady_clock::now();
     Database db(utf8(db_path), true);
+    ScanResult result;
+#ifdef _WIN32
+    const auto guard_start = std::chrono::steady_clock::now();
+    IndexFileGuard guard(db_path, is_local_drive_path(root) && is_local_drive_path(db_path));
+    result.timings.identity_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - guard_start).count();
+#endif
     Transaction tx(db);
     schema(db, true);
 
@@ -87,21 +123,18 @@ ScanResult scan(const std::filesystem::path& root_path, const std::filesystem::p
         clear.bind(1, root_id); clear.run();
     }
 
-    ScanResult result;
     Statement insert(db, R"sql(INSERT INTO nodes
         (root_id,parent_id,name,full_path,extension,is_directory,size,modified_at)
         VALUES(?,?,?,?,?,?,?,?))sql");
-    auto add_node = [&](const fs::path& path, std::int64_t parent, bool directory) {
-        const auto bytes = directory ? 0 : fs::file_size(path);
-        if (bytes > static_cast<std::uintmax_t>(std::numeric_limits<std::int64_t>::max()))
+    result.timings.prepare_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - prepare_start).count()
+        - result.timings.identity_ms;
+    auto add_node = [&](const EntryMetadata& metadata, std::int64_t parent) {
+        Timer timer(result.timings.write_ms);
+        const auto& path = metadata.path;
+        const bool directory = metadata.directory;
+        const auto bytes = directory ? 0 : metadata.size;
+        if (bytes > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))
             throw std::runtime_error("File size exceeds index range");
-#ifdef _MSC_VER
-        // MSVC file_clock exposes to_utc instead of to_sys.
-        const auto modified = std::chrono::clock_cast<std::chrono::system_clock>(fs::last_write_time(path));
-#else
-        const auto modified = fs::file_time_type::clock::to_sys(fs::last_write_time(path));
-#endif
-        const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(modified.time_since_epoch()).count();
         auto name = path.filename();
         if (name.empty()) name = path;
         insert.bind(1, root_id);
@@ -109,7 +142,7 @@ ScanResult scan(const std::filesystem::path& root_path, const std::filesystem::p
         insert.bind(3, utf8(name)); insert.bind(4, utf8(path));
         insert.bind(5, directory ? "" : ascii_lower(utf8(path.extension())));
         insert.bind(6, static_cast<std::int64_t>(directory));
-        insert.bind(7, static_cast<std::int64_t>(bytes)); insert.bind(8, seconds);
+        insert.bind(7, static_cast<std::int64_t>(bytes)); insert.bind(8, metadata.modified_at);
         insert.run();
         const auto id = sqlite3_last_insert_rowid(db.handle);
         insert.reset();
@@ -117,26 +150,63 @@ ScanResult scan(const std::filesystem::path& root_path, const std::filesystem::p
         return id;
     };
 
-    const auto root_node = add_node(root, 0, true);
+    EntryMetadata root_metadata;
+    { Timer timer(result.timings.metadata_ms); root_metadata = read_metadata(root); }
+    const auto root_node = add_node(root_metadata, 0);
     std::vector<std::pair<fs::path, std::int64_t>> pending{{root, root_node}};
     while (!pending.empty()) {
         auto [directory, parent] = std::move(pending.back()); pending.pop_back();
-        // Throw on unreadable directories; never silently publish an incomplete snapshot.
+        auto consume = [&](const EntryMetadata& metadata) {
+            if (metadata.skipped) { ++result.skipped; return; }
+            if (!metadata.directory) {
+#ifdef _WIN32
+                if (guard.needs_checks()) {
+                    Timer timer(result.timings.identity_ms);
+                    ++result.identity_checks;
+                    if (guard.matches(metadata.path))
+                        throw std::invalid_argument("Scan contains a hard link to the index database");
+                }
+#else
+                Timer timer(result.timings.identity_ms);
+                ++result.identity_checks;
+                if (fs::equivalent(metadata.path, db_path))
+                    throw std::invalid_argument("Scan contains a hard link to the index database");
+#endif
+            }
+            const auto id = add_node(metadata, parent);
+            if (metadata.directory) pending.emplace_back(metadata.path, id);
+        };
+#ifdef _WIN32
+        const auto cursor_start = std::chrono::steady_clock::now();
+        DirectoryCursor cursor(directory);
+        result.timings.metadata_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - cursor_start).count();
+        for (;;) {
+            EntryMetadata entry;
+            bool found;
+            { Timer timer(result.timings.metadata_ms); found = cursor.next(entry); }
+            if (!found) break;
+            consume(entry);
+        }
+#else
+        // The portable path retains strict failure and rollback behavior.
         for (const auto& entry : fs::directory_iterator(directory)) {
             const auto& path = entry.path();
             if (is_link(path)) { ++result.skipped; continue; }
             const auto status = entry.status();
             const bool dir = fs::is_directory(status);
             if (!dir && !fs::is_regular_file(status)) { ++result.skipped; continue; }
-            if (!dir && fs::equivalent(path, db_path))
-                throw std::invalid_argument("Scan contains a hard link to the index database");
-            const auto id = add_node(path, parent, dir);
-            if (dir) pending.emplace_back(path, id);
+            EntryMetadata metadata;
+            { Timer timer(result.timings.metadata_ms); metadata = read_metadata(path); }
+            consume(metadata);
         }
+#endif
     }
+#ifdef _WIN32
+    { Timer timer(result.timings.identity_ms); guard.verify_unchanged(); }
+#endif
     Statement stamp(db, "UPDATE roots SET scanned_at=unixepoch() WHERE id=?");
     stamp.bind(1, root_id); stamp.run();
-    tx.commit();
+    { Timer timer(result.timings.commit_ms); tx.commit(); }
     return result;
 }
 

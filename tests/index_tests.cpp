@@ -7,6 +7,13 @@
 #include <map>
 #include <random>
 #include <stdexcept>
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include "../src/windows_fs.hpp"
+#endif
 
 namespace fs = std::filesystem;
 void require(bool condition, const char* message) {
@@ -150,6 +157,96 @@ void database_hardlink() {
     require(mini::search(f.db, {"alias.db"}).empty(), "database hardlink was indexed");
     require(mini::search(f.db, {"old.txt"}).size() == 1, "hardlink rejection lost old index");
 }
+#ifdef _WIN32
+struct SkipTest : std::runtime_error { using std::runtime_error::runtime_error; };
+void windows_unc_alias() {
+    Fixture f; f.file("hello.txt");
+    const auto native = f.root.wstring();
+    const auto unc = fs::path(L"\\\\localhost\\" + native.substr(0, 1) + L"$" + native.substr(2));
+    if (GetFileAttributesW(unc.c_str()) == INVALID_FILE_ATTRIBUTES)
+        throw SkipTest("localhost administrative share is unavailable");
+    const auto local_db = f.root / "index.db";
+    const auto unc_db = unc / "index.db";
+    rejects([&] { mini::scan(f.root, unc_db); });
+    rejects([&] { mini::scan(unc, local_db); });
+}
+void windows_volume_root() {
+    Fixture f;
+    const auto root = mini::detail::normalized(f.root.root_path());
+    const auto db = mini::detail::normalized(f.db);
+    require(mini::detail::contains(root, db), "volume root must contain its descendants");
+    // Only reached after the containment assertion: never traverse a real volume.
+    rejects([&] { mini::scan(f.root.root_path(), f.db); });
+    require(!fs::exists(f.db), "volume scan created an index inside its own root");
+}
+void windows_identity_guard() {
+    Fixture f; f.file("one.txt"); f.file("two.txt");
+    const auto initial = mini::scan(f.root, f.db);
+    require(initial.files == 2 && initial.identity_checks == 0, "single-link database should avoid per-file identity opens");
+    fs::create_hard_link(f.db, f.base / "outside-alias.db");
+    const auto fallback = mini::scan(f.root, f.db);
+    require(fallback.files == 2 && fallback.identity_checks == 2, "multi-link database must compare every file");
+    mini::detail::IndexFileGuard guard(f.db);
+    require(guard.matches(f.base / "outside-alias.db"), "cached database identity did not match hardlink");
+    fs::create_hard_link(f.db, f.base / "second-alias.db");
+    rejects([&] { guard.verify_unchanged(); });
+}
+void windows_read_failure() {
+    Fixture f; f.file("child/old.txt"); mini::scan(f.root, f.db);
+    HANDLE handle = CreateFileW((f.root / "child").c_str(), GENERIC_READ, 0, nullptr,
+        OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+    require(handle != INVALID_HANDLE_VALUE, "could not lock fixture directory");
+    try { rejects([&] { mini::scan(f.root, f.db); }); }
+    catch (...) { CloseHandle(handle); throw; }
+    CloseHandle(handle);
+    require(mini::search(f.db, {"old.txt"}).size() == 1, "directory read failure destroyed old index");
+}
+void windows_extended_input() {
+    Fixture f; f.file("report.txt");
+    const auto root = fs::path(L"\\\\?\\" + f.root.wstring());
+    const auto db = fs::path(L"\\\\?\\" + f.db.wstring());
+    mini::scan(root, db);
+    require(mini::search(db, {"report"}).size() == 1, "extended input path failed");
+    mini::scan(f.root, f.db);
+    require(mini::search(db, {"report"}).size() == 1, "extended input duplicated root");
+}
+void windows_long_tree() {
+    Fixture f;
+    // Avoid MinGW remove_all on the long fixture; delete only known owned entries.
+    struct LongCleanup {
+        std::vector<std::wstring> directories;
+        std::wstring leaf;
+        ~LongCleanup() {
+            if (!leaf.empty()) DeleteFileW(leaf.c_str());
+            for (auto it = directories.rbegin(); it != directories.rend(); ++it) RemoveDirectoryW(it->c_str());
+        }
+    } cleanup;
+    auto path = L"\\\\?\\" + f.root.wstring();
+    for (int i=0; i<4; ++i) {
+        path += L"\\segment-" + std::to_wstring(i) + std::wstring(60, L'x');
+        require(CreateDirectoryW(path.c_str(), nullptr) != 0, "long fixture mkdir failed");
+        cleanup.directories.push_back(path);
+    }
+    const auto leaf = path + L"\\leaf.txt";
+    cleanup.leaf = leaf;
+    HANDLE h = CreateFileW(leaf.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+    require(h != INVALID_HANDLE_VALUE, "long fixture write failed");
+    DWORD written = 0;
+    const bool wrote = WriteFile(h, "hello", 5, &written, nullptr) != 0;
+    CloseHandle(h);
+    require(wrote && written == 5, "long fixture bytes failed");
+    fs::create_directory(f.base / "empty-cwd");
+    const auto previous = fs::current_path();
+    fs::current_path(f.base / "empty-cwd");
+    try {
+        const auto result = mini::scan(f.root, f.db);
+        require(result.files == 1 && result.directories == 5, "long tree silently truncated");
+        const auto found = mini::search(f.db, {"leaf"});
+        require(found.size() == 1 && found[0].size == 5, "long leaf metadata missing");
+        fs::current_path(previous);
+    } catch (...) { fs::current_path(previous); throw; }
+}
+#endif
 
 int main(int argc, char** argv) {
     const std::map<std::string, std::function<void()>> cases = {
@@ -157,9 +254,20 @@ int main(int argc, char** argv) {
         {"literal_search", literal_search}, {"filters", filters}, {"unicode", unicode},
         {"overlap", overlap}, {"invalid_root", invalid_root}, {"database_inside", database_inside},
         {"deep_tree", deep_tree}, {"rollback", rollback}, {"foreign_database", foreign_database},
-        {"schema_version", schema_version}, {"database_hardlink", database_hardlink}};
+        {"schema_version", schema_version}, {"database_hardlink", database_hardlink}
+#ifdef _WIN32
+        , {"windows_extended_input", windows_extended_input}, {"windows_long_tree", windows_long_tree}
+        , {"windows_identity_guard", windows_identity_guard}, {"windows_read_failure", windows_read_failure}
+        , {"windows_volume_root", windows_volume_root}
+        , {"windows_unc_alias", windows_unc_alias}
+#endif
+    };
     try {
         require(argc == 2, "expected case name"); cases.at(argv[1])();
         std::cout << "PASS " << argv[1] << '\n'; return 0;
-    } catch (const std::exception& e) { std::cerr << "FAIL: " << e.what() << '\n'; return 1; }
+    }
+#ifdef _WIN32
+    catch (const SkipTest& e) { std::cout << "SKIP: " << e.what() << '\n'; return 77; }
+#endif
+    catch (const std::exception& e) { std::cerr << "FAIL: " << e.what() << '\n'; return 1; }
 }

@@ -1,5 +1,10 @@
 file(MAKE_DIRECTORY "${TEST_DIR}/root")
 file(WRITE "${TEST_DIR}/root/hello.txt" "hello")
+execute_process(COMMAND "${APP}" scan "${TEST_DIR}/root" --db "${TEST_DIR}/index.db" --profile
+    RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
+if(NOT result EQUAL 0 OR NOT output MATCHES "Indexed" OR NOT error MATCHES "Profile:.*identity_checks=")
+    message(FATAL_ERROR "scan profiling failed: ${output} ${error}")
+endif()
 execute_process(COMMAND "${APP}" scan "${TEST_DIR}/root" --db "${TEST_DIR}/index.db"
     RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
 if(NOT result EQUAL 0)

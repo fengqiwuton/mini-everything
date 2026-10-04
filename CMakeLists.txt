@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(MiniEverything VERSION 0.1.0 LANGUAGES C CXX)
+project(MiniEverything VERSION 0.2.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -44,6 +44,14 @@ if(BUILD_TESTING)
         -DTEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/cli-fixture
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cli_test.cmake)
     if(WIN32)
+        add_test(NAME windows_extended_input COMMAND mini_tests windows_extended_input)
+        add_test(NAME windows_long_tree COMMAND mini_tests windows_long_tree)
+        add_test(NAME windows_identity_guard COMMAND mini_tests windows_identity_guard)
+        add_test(NAME windows_read_failure COMMAND mini_tests windows_read_failure)
+        add_test(NAME windows_volume_root COMMAND mini_tests windows_volume_root)
+        add_test(NAME windows_unc_alias COMMAND mini_tests windows_unc_alias)
+        set_tests_properties(windows_unc_alias PROPERTIES SKIP_RETURN_CODE 77)
+        set_tests_properties(windows_long_tree PROPERTIES TIMEOUT 30)
         find_program(POWERSHELL_EXECUTABLE NAMES pwsh powershell REQUIRED)
         add_test(NAME windows_paths COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -ExecutionPolicy Bypass
             -File ${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_paths.ps1

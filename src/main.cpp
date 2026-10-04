@@ -3,6 +3,7 @@
 #include <charconv>
 #include <chrono>
 #include <iostream>
+#include <iomanip>
 #include <set>
 #ifdef _WIN32
 #include <shellapi.h>
@@ -10,8 +11,8 @@
 
 namespace {
 void help() {
-    std::cout << "MiniEverything 0.1.0\n"
-        "  mini-everything scan <directory> --db <index.db>\n"
+    std::cout << "MiniEverything 0.2.0\n"
+        "  mini-everything scan <directory> --db <index.db> [--profile]\n"
         "  mini-everything search <text> --db <index.db> [--ext pdf] [--limit 100]\n"
         "  mini-everything --help | --version\n"
         "Search is a literal substring match (ASCII case-insensitive).\n"
@@ -35,10 +36,13 @@ int run(const std::vector<std::string>& args) {
     mini::SearchOptions options;
     options.text = args[1];
     std::set<std::string> seen;
-    for (std::size_t i = 2; i < args.size(); i += 2) {
+    bool profile = false;
+    for (std::size_t i = 2; i < args.size();) {
         const auto& flag = args[i];
-        if (i + 1 == args.size() || !seen.insert(flag).second)
+        if (!seen.insert(flag).second)
             throw std::invalid_argument("Missing value or duplicate option: " + flag);
+        if (flag == "--profile" && args[0] == "scan") { profile = true; ++i; continue; }
+        if (i + 1 == args.size()) throw std::invalid_argument("Missing value: " + flag);
         const auto& value = args[i + 1];
         if (flag == "--db") database = value;
         else if (args[0] == "search" && flag == "--ext") options.extension = value;
@@ -47,6 +51,7 @@ int run(const std::vector<std::string>& args) {
             if (error != std::errc{} || end != value.data() + value.size() || options.limit < 1 || options.limit > 10000)
                 throw std::invalid_argument("--limit must be an integer between 1 and 10000");
         } else throw std::invalid_argument("Unknown option: " + flag);
+        i += 2;
     }
     if (database.empty()) throw std::invalid_argument("--db is required");
     const auto db_path = mini::detail::from_utf8(database);
@@ -55,6 +60,10 @@ int run(const std::vector<std::string>& args) {
         const auto result = mini::scan(mini::detail::from_utf8(args[1]), db_path);
         std::cout << "Indexed " << result.files << " files, " << result.directories
             << " directories; skipped " << result.skipped << " links/unsupported entries.\n";
+        if (profile) std::cerr << std::fixed << std::setprecision(2)
+            << "Profile: prepare_ms=" << result.timings.prepare_ms << " metadata_ms=" << result.timings.metadata_ms
+            << " identity_ms=" << result.timings.identity_ms << " write_ms=" << result.timings.write_ms
+            << " commit_ms=" << result.timings.commit_ms << " identity_checks=" << result.identity_checks << '\n';
     } else {
         const auto results = mini::search(db_path, options);
         std::cout << "TYPE\tSIZE\tMODIFIED_UNIX\tNAME\tPATH\n";
