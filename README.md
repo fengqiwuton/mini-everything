@@ -75,6 +75,8 @@ v0.3 将 `prepare_ms` 进一步拆为 `open_ms`、`transaction_ms`（含等待�
 
 ## 目录
 
+各文件职责、主要调用关系和推荐阅读顺序见 [项目代码导读](docs/code-guide.md)。源码、测试和脚本中的函数前均有中文用途说明。
+
 ```text
 include/mini/index.hpp  核心扫描和查询接口
 src/index.cpp          邻接表、扫描事务和查询

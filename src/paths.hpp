@@ -11,13 +11,17 @@
 
 namespace mini::detail {
 namespace fs = std::filesystem;
+/// 将原生路径编码为 UTF-8 字节串，供 SQLite 存储和命令行输出使用，不访问磁盘。
 inline std::string utf8(const fs::path& path) {
     const auto s = path.u8string();
     return {reinterpret_cast<const char*>(s.data()), s.size()};
 }
+/// 将 UTF-8 文本还原为原生 filesystem 路径，保留中文等非 ASCII 文件名。
 inline fs::path from_utf8(const std::string& text) {
     return fs::path(std::u8string(text.begin(), text.end()));
 }
+/// 转换为规范绝对路径并解析已有前缀的文件系统别名，保留尚不存在的末尾部分。
+/// Windows 使用原生 API 和扩展路径；空路径、不可访问的前缀或解析失败时抛出异常。
 inline fs::path normalized(const fs::path& path) {
     if (path.empty()) throw std::invalid_argument("Path must not be empty");
 #ifdef _WIN32
@@ -76,6 +80,7 @@ inline fs::path normalized(const fs::path& path) {
     return result;
 #endif
 }
+/// 比较两个路径分量；Windows 使用忽略大小写的序数比较，其他平台按原字符比较。
 inline bool component_equal(const fs::path& a, const fs::path& b) {
 #ifdef _WIN32
     return CompareStringOrdinal(a.c_str(), -1, b.c_str(), -1, TRUE) == CSTR_EQUAL;
@@ -84,6 +89,8 @@ inline bool component_equal(const fs::path& a, const fs::path& b) {
 #endif
 }
 // Component comparison prevents C:\root from matching C:\root-other.
+/// 按路径分量判断 child 是否等于 parent 或位于其下，避免仅按字符串前缀产生误判。
+/// 调用方负责先规范化路径；函数跳过父路径末尾的空分量以兼容卷根目录。
 inline bool contains(const fs::path& parent, const fs::path& child) {
     auto p = parent.begin(); auto c = child.begin();
     for (; p != parent.end(); ++p) {
@@ -94,6 +101,7 @@ inline bool contains(const fs::path& parent, const fs::path& child) {
     }
     return true;
 }
+/// 判断路径是否为 Windows 重解析点或其他平台的符号链接，读取属性失败时抛出异常。
 inline bool is_link(const fs::path& path) {
 #ifdef _WIN32
     const DWORD attributes = GetFileAttributesW(path.c_str());
@@ -104,6 +112,7 @@ inline bool is_link(const fs::path& path) {
     return fs::is_symlink(fs::symlink_status(path));
 #endif
 }
+/// 返回仅将 ASCII 大写字母转为小写的文本副本，其他字节保持原样，用于扩展名归一化。
 inline std::string ascii_lower(std::string text) {
     for (char& c : text) if (c >= 'A' && c <= 'Z') c = static_cast<char>(c + ('a' - 'A'));
     return text;

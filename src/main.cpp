@@ -10,6 +10,7 @@
 #endif
 
 namespace {
+/// 输出版本、命令格式、查询语义、缓存范围和退出码，供 help/version 命令使用。
 void help() {
     std::cout << "MiniEverything 0.3.0\n"
         "  mini-everything scan <directory> --db <index.db> [--profile] [--db-cache-mib 64]\n"
@@ -20,6 +21,7 @@ void help() {
         "Scan page-cache target: 1..1024 MiB, default 64 (not total process memory).\n"
         "Exit codes: 0 success, 1 operation failed, 2 invalid arguments.\n";
 }
+/// 将控制字节编码为可见的十六进制转义文本，避免文件名或错误信息破坏 TSV 和终端行结构。
 std::string escaped(const std::string& text) {
     std::string out;
     constexpr char hex[] = "0123456789abcdef";
@@ -29,6 +31,8 @@ std::string escaped(const std::string& text) {
     }
     return out;
 }
+/// 解析不含程序名的 UTF-8 参数，校验选项后调度扫描或搜索并输出结果与诊断。
+/// 正常完成返回 0；参数或操作错误以异常交给 main 统一映射为退出码。
 int run(const std::vector<std::string>& args) {
     if (args.size() == 1 && (args[0] == "--help" || args[0] == "--version")) { help(); return 0; }
     if (args.size() < 2 || (args[0] != "scan" && args[0] != "search"))
@@ -92,6 +96,8 @@ int run(const std::vector<std::string>& args) {
 }
 } // namespace
 
+/// 程序入口：Windows 原生宽字符参数转为 UTF-8 后交给 run，其他平台使用 argv。
+/// 捕获异常并输出错误，将参数错误映射为 2、操作失败映射为 1。
 int main(int argc, char** argv) {
     try {
         std::vector<std::string> args;

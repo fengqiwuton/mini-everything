@@ -3,9 +3,11 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $OutputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+# 执行待测程序，把原生 stdout/stderr 统一收集为文本，并保存退出码供后续断言读取。
 function Invoke-App {
     # Windows PowerShell 5.1 represents native stderr as ErrorRecord objects.
     $ErrorActionPreference = 'Continue'
+    # 管道回调将每一项标准输出或错误记录格式化为字符串，便于后续断言统一匹配。
     $result = & $App @args 2>&1 | ForEach-Object { "$_" }
     $script:NativeExit = $LASTEXITCODE
     return $result
@@ -43,6 +45,7 @@ try {
 using System.Text;
 using System.Runtime.InteropServices;
 public static class MiniTestPaths {
+    /// 调用 Windows 原生短路径 API，将输入路径写为 8.3 别名；返回长度，失败返回 0。
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     public static extern uint GetShortPathName(string path, StringBuilder output, uint length);
 }

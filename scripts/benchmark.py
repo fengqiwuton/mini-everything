@@ -9,6 +9,7 @@ import subprocess
 import time
 
 
+# 解析基准参数，交替测量两个版本的新建/重扫耗时，校验索引并生成分阶段 JSON 汇总。
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline", type=Path, required=True)
@@ -29,6 +30,7 @@ def main():
     reference = None
     phases = ("fresh", "rescan") if args.mode == "both" else (args.mode,)
 
+    # 调用指定版本的扫描程序，按版本选择诊断与缓存参数；非零退出码会终止基准。
     def run_scan(app, label, database):
         command = [str(app.resolve()), "scan", str(args.root.resolve()), "--db", str(database)]
         if label == "candidate" or args.baseline_profile:
@@ -37,6 +39,8 @@ def main():
             command.extend(("--db-cache-mib", str(args.candidate_cache_mib)))
         return subprocess.run(command, capture_output=True, text=True, encoding="utf8", check=True)
 
+    # 检查索引格式、完整性及外键，并将元数据、父路径和根归属与首份结果逐条对比。
+    # 成功返回文件和目录数量；结果不一致或数据库损坏时抛错，避免发布无效的速度比较。
     def verify(database):
         nonlocal reference
         with sqlite3.connect(database) as connection:

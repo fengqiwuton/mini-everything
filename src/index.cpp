@@ -14,7 +14,9 @@ class Timer {
     double& elapsed_;
     std::chrono::steady_clock::time_point start_{std::chrono::steady_clock::now()};
 public:
+    /// 绑定要累计的耗时字段，并通过成员初始值记录当前阶段的开始时间。
     explicit Timer(double& elapsed) : elapsed_(elapsed) {}
+    /// 将本作用域经过的时间以毫秒累加到绑定字段，便于统计重复操作的总成本。
     ~Timer() { elapsed_ += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start_).count(); }
 };
 #ifndef _WIN32
@@ -25,6 +27,7 @@ struct EntryMetadata {
     std::uint64_t size{};
     std::int64_t modified_at{};
 };
+/// 在非 Windows 平台读取类型、大小及修改时间，目录大小记为 0，读取失败时抛出异常。
 EntryMetadata read_metadata(const fs::path& path) {
     const bool directory = fs::is_directory(path);
     const auto modified = fs::file_time_type::clock::to_sys(fs::last_write_time(path));
@@ -33,12 +36,15 @@ EntryMetadata read_metadata(const fs::path& path) {
 }
 #endif
 
+/// 执行查询并返回首行首列的整数值，用于读取数据库格式标记；没有结果行时抛错。
 std::int64_t scalar(Database& db, const char* sql) {
     Statement stmt(db, sql);
     if (!stmt.row()) throw std::runtime_error("Missing database metadata");
     return stmt.number(0);
 }
 
+/// 校验 application_id 和格式版本；create 为 true 时允许为空库建立 schema 1。
+/// 外部数据库或不兼容的格式会被拒绝，防止扫描覆盖其他应用的数据。
 void schema(Database& db, bool create) {
     const auto app = scalar(db, "PRAGMA application_id");
     const auto version = scalar(db, "PRAGMA user_version");
@@ -72,6 +78,7 @@ void schema(Database& db, bool create) {
     db.exec("PRAGMA application_id=" + std::to_string(application_id));
 }
 
+/// 转义 LIKE 的通配符与转义符，再包上百分号，使用户文本按字面子串进行匹配。
 std::string pattern(const std::string& text) {
     std::string value = "%";
     for (char c : text) {
@@ -82,6 +89,8 @@ std::string pattern(const std::string& text) {
 }
 } // namespace
 
+/// 规范化路径并检查范围，以迭代 DFS 收集节点，在单个写事务中替换当前根的索引。
+/// 复用 SQL 语句、检查数据库文件身份并累计诊断数据，任一未提交阶段失败都会回滚。
 ScanResult scan(const std::filesystem::path& root_path, const std::filesystem::path& database, const ScanOptions& options) {
     using namespace detail;
     if (options.db_cache_mib < 1 || options.db_cache_mib > 1024)
@@ -140,6 +149,7 @@ ScanResult scan(const std::filesystem::path& root_path, const std::filesystem::p
     result.timings.statements_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - statements_start).count();
     result.timings.prepare_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - prepare_start).count()
         - result.timings.identity_ms;
+    // 把元数据序列化并插入节点表，返回新节点 ID，同时累计写入耗时及文件/目录数量。
     auto add_node = [&](const EntryMetadata& metadata, std::int64_t parent) {
         Timer timer(result.timings.write_ms);
         const auto& path = metadata.path;
@@ -168,6 +178,7 @@ ScanResult scan(const std::filesystem::path& root_path, const std::filesystem::p
     std::vector<std::pair<fs::path, std::int64_t>> pending{{root, root_node}};
     while (!pending.empty()) {
         auto [directory, parent] = std::move(pending.back()); pending.pop_back();
+        // 处理一条枚举结果：计数跳过项、检查数据库别名、插入节点，并把子目录加入 DFS 待办栈。
         auto consume = [&](const EntryMetadata& metadata) {
             if (metadata.skipped) { ++result.skipped; return; }
             if (!metadata.directory) {
@@ -226,6 +237,8 @@ ScanResult scan(const std::filesystem::path& root_path, const std::filesystem::p
     return result;
 }
 
+/// 以只读方式校验已有索引，执行带参数绑定的字面子串与扩展名查询，稳定排序后限制数量。
+/// 返回持久化节点信息，不要求被索引文件仍在磁盘上；无匹配结果时返回空集合。
 std::vector<Node> search(const std::filesystem::path& database, const SearchOptions& options) {
     using namespace detail;
     if (options.limit < 1 || options.limit > 10000) throw std::invalid_argument("Limit must be between 1 and 10000");
