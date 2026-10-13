@@ -20,6 +20,7 @@ def main():
     parser.add_argument("--mode", choices=("fresh", "rescan", "both"), default="fresh")
     parser.add_argument("--baseline-profile", action="store_true", help="For baselines supporting --profile (v0.2+)")
     parser.add_argument("--candidate-cache-mib", type=int, help="For candidates supporting --db-cache-mib (v0.3+)")
+    parser.add_argument("--candidate-incremental", action="store_true", help="Reconcile candidate indexes without replacing unchanged rows (v0.5+)")
     args = parser.parse_args()
     if args.rounds < 1:
         parser.error("--rounds must be positive")
@@ -37,6 +38,8 @@ def main():
             command.append("--profile")
         if label == "candidate" and args.candidate_cache_mib is not None:
             command.extend(("--db-cache-mib", str(args.candidate_cache_mib)))
+        if label == "candidate" and args.candidate_incremental:
+            command.append("--incremental")
         return subprocess.run(command, capture_output=True, text=True, encoding="utf8", check=True)
 
     # 检查索引格式、完整性及外键，并将元数据、父路径和根归属与首份结果逐条对比。
@@ -90,6 +93,7 @@ def main():
     speedups = {phase: medians[phase]["baseline"] / max(medians[phase]["candidate"], 1) for phase in phases}
     summary = dict(samples=samples, median_internal_ms=medians, speedup_by_phase=speedups,
                    contents_equal=True, files=counts[0], directories=counts[1],
+                   candidate_incremental=args.candidate_incremental,
                    note="Same unchanged fixture; fresh databases per version/round, then rescan when requested; rescan-only uses baseline seeds. Alternating runs; OS caches may be warm.")
     (args.output_dir / "comparison.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf8")
     print(json.dumps({k: v for k, v in summary.items() if k != "samples"}, indent=2))

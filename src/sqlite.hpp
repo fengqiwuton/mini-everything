@@ -8,11 +8,11 @@ namespace mini::detail {
 class Database {
 public:
     sqlite3* handle{};
-    /// 按 UTF-8 路径打开只读或可创建的读写连接，设置忙等待、外键和 trusted_schema 策略。
+    /// 按 UTF-8 路径打开只读或读写连接，create 控制读写模式是否允许创建缺失文件。
     /// cache_mib 为连接局部的页缓存目标，0 保留 SQLite 默认值；打开或配置失败时抛出异常。
-    Database(const std::string& path, bool writable, int cache_mib = 0) {
+    Database(const std::string& path, bool writable, int cache_mib = 0, bool create = true) {
         if (cache_mib < 0 || cache_mib > 1024) throw std::invalid_argument("Database cache must be between 1 and 1024 MiB (0 keeps the default)");
-        const int flags = writable ? SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE : SQLITE_OPEN_READONLY;
+        const int flags = writable ? SQLITE_OPEN_READWRITE | (create ? SQLITE_OPEN_CREATE : 0) : SQLITE_OPEN_READONLY;
         const int rc = sqlite3_open_v2(path.c_str(), &handle, flags, nullptr);
         if (rc != SQLITE_OK) {
             const std::string error = handle ? sqlite3_errmsg(handle) : "out of memory";
