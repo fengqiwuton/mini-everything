@@ -13,7 +13,7 @@
 - [x] 扫描维护：独立 agent 仅修改 include/mini/index.hpp、src/index.cpp，创建 tests/maintenance_tests.cpp。增加进度/取消、增量模式、expected_root_id；旧默认重建及 search 保持兼容。先验证保留 ID、删除旧行和取消回滚，再实现。
 - [x] 父 agent 集成 CLI、CMake、watch 模块与测试；先写 CLI 回归，在旧程序上观察失败，再实现。监听测试仅修改临时夹具。
 - [x] 更新 README、使用手册、code-guide、基准与验收报告；所有新函数保留中文说明。
-- [ ] 独立整分支审查，处理确认的问题，Debug/Release 和 Windows/Linux CI，提交推送并归档 v0.5.0（GUI 前核心版本）。
+- [x] 独立整分支审查，处理确认的问题，Debug/Release 和 Windows/Linux CI，提交推送并归档 v0.5.0（GUI 前核心版本）。
 
 ## 接口约定
 
@@ -30,4 +30,4 @@ ScanResult 新增 inserted、updated、removed、unchanged（节点行数量，�
 
 基线 ae62c2f，沿用当前工作目录新分支 feat/pre-gui-cli。用户自主授权下，由父 agent 执行设计和集成；文件所有权不重叠的模块按 dispatching-parallel-agents 并行，最后统一验证。
 
-已完成共享读接口、查询、目录、增量扫描、监听和 CLI 整合。CLI 在管理模块完成后交由其 agent 编写，父 agent 同时完成监听与统一构建；文件所有权分阶段交接。独立审查确认并修复三个 P2 和 forget 缺失数据库问题，均有先失败后通过的回归证据。本机 Debug/Release 各32项通过；受控默认/增量扫描和查询结果见 pre-gui-validation.md。远程 CI 与版本归档等待提交后完成。
+已完成共享读接口、查询、目录、增量扫描、监听和 CLI 整合。CLI 在管理模块完成后交由其 agent 编写，父 agent 同时完成监听与统一构建；文件所有权分阶段交接。独立审查确认并修复三个 P2 和 forget 缺失数据库问题，均有先失败后通过的回归证据。本机 Debug/Release 各32项通过；受控默认/增量扫描和查询结果见 pre-gui-validation.md。核心提交508d0c0已推送，Windows MSVC/Ubuntu Release CI均通过；v0.5.0标签归档这一GUI前核心，生成程序保存在build/archive/v0.5。

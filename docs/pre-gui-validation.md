@@ -15,7 +15,7 @@
 
 本机 Windows MinGW-w64 GCC 14.2、CMake 3.31.5、SQLite 3.53.4：Debug **32/32**、Release **32/32** CTest 通过。query/catalog/maintenance 的套件分别含 8/9/13 组情景；CTest 的一项套件可包含多组情景。独立审查使用另一构建目录再次完成 Debug **32/32**。
 
-远程 Windows MSVC / Ubuntu Release CI 在提交后运行，归档前补记结果。
+远程 Windows MSVC / Ubuntu Release CI 均通过，验证核心提交 508d0c0：[GitHub Actions 38440931685](https://github.com/fengqiwuton/mini-everything/actions/runs/38440931685)。后续验收文档提交不修改核心源码或测试。CI 不提供 Windows 管理共享时，UNC 用例可按退出码77跳过。
 
 复现本机测试：
 
