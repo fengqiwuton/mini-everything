@@ -89,3 +89,11 @@ python scripts/query_benchmark.py --app build/Release/mini-everything.exe --db <
 watch 每次校准仍遍历整个根，事件只负责标脏与合并；原生缓冲溢出的恢复路径已实现，但没有对真实网络文件系统通知溢出做压力验收。回调只在成功提交后输出更新；取消当前轮不能撤销之前已提交的轮次。仍采用严格读取错误回滚和较长写事务，没有后台服务、文件内容搜索、GUI或真实文件移动/删除。
 
 原生监听的目录自身通知限制及缓冲处理参见[微软 ReadDirectoryChangesW 文档](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-readdirectorychangesw)；取消后等待异步完成再释放资源遵循[微软 CancelIoEx 文档](https://learn.microsoft.com/en-us/windows/win32/api/ioapiset/nf-ioapiset-cancelioex)。
+
+## v0.5.1：PowerShell 全部搜索兼容修复（2026-10-16）
+
+用户按手动测试步骤运行 search "" 时，Windows PowerShell 丢弃空位置参数，导致程序把 --db 当成搜索文本、数据库路径当成选项。已使用系统 Windows PowerShell 5.1 复现；新增 --all 回归在旧程序上返回空结果而失败。
+
+修复为显式 search --all：支持原有筛选、排序、分页及输出格式；保留真正传入空文本的旧调用。--all 替代搜索文本，不与 --mode 同用。search -- <text> 允许搜索字面 --all/--db；漏掉文本时给出使用 --all 的明确提示。使用手册已替换空文本示例。Windows 测试脚本增加 UTF-8 BOM，使 5.1 能正确读取中文注释，并直接回归全部搜索的大小/时间/排序条件。
+
+本机补丁验收：Release 全部32项通过，Debug CLI相关4项通过；同一 Windows 测试脚本在 Windows PowerShell 5.1.26100.9711、PowerShell 7.6.5 Legacy 模式和默认模式均通过。直接 CMake 调用仍保留空字符串，回归通过；非空文本、以 -- 开头的文本及保留字转义回归通过。独立只读审查未发现阻塞问题。补丁没有修改扫描、查询 SQL 或数据库格式。

@@ -45,8 +45,8 @@
 | [tests/watch_tests.cpp](../tests/watch_tests.cpp) | 监听集成测试。只在随机临时根修改文件，验证初次与后续校准、有限轮次、原生事件/轮询、取消和根失效处理；由 CTest 设置限时防止测试永久监听。 |
 | [tests/cli_test.cmake](../tests/cli_test.cmake) | 基础命令行集成测试。调用可执行文件，验证扫描、诊断、搜索、帮助和非法查询条数对应的退出码。脚本按顺序执行，没有自行定义函数。 |
 | [tests/cache_cli_test.cmake](../tests/cache_cli_test.cmake) | 缓存参数与细分诊断的命令行回归测试。验证默认值、自定义值、越界/格式错误、缺少或重复参数，以及扫描专用选项在搜索时被拒绝；确认错误参数不会破坏旧索引。脚本没有自行定义函数。 |
-| [tests/pre_gui_cli.cmake](../tests/pre_gui_cli.cmake) | GUI 前 CLI 全流程回归。随机根保证重复运行互不污染；验证高级搜索/默认五列/ID、JSON、目录浏览、根管理、refresh、watch NDJSON、限时取消与旧索引保留，以及重复/缺值/白名单/整数边界和以 -- 开头的字面文本。辅助函数区分成功、参数错误和取消。 |
-| [tests/windows_paths.ps1](../tests/windows_paths.ps1) | Windows 路径与链接集成测试。验证中文、空格、根目录路径别名和链接相关行为。`Invoke-App` 收集程序输出并保存原生退出码，让 Windows PowerShell 的 stderr 表示方式不干扰断言。 |
+| [tests/pre_gui_cli.cmake](../tests/pre_gui_cli.cmake) | GUI 前 CLI 全流程回归。随机根保证重复运行互不污染；验证高级搜索/默认五列/ID、JSON、目录浏览、根管理、refresh、watch NDJSON、限时取消与旧索引保留，以及重复/缺值/白名单/整数边界、--all 全部搜索和以 -- 开头的字面文本。辅助函数区分成功、参数错误和取消。 |
+| [tests/windows_paths.ps1](../tests/windows_paths.ps1) | Windows 路径、链接与 PowerShell 全部搜索集成测试。文件使用 UTF-8 BOM，供 Windows PowerShell 5.1 正确读取中文注释。验证中文、空格、根目录路径别名和链接相关行为。`Invoke-App` 收集程序输出并保存原生退出码，让 Windows PowerShell 的 stderr 表示方式不干扰断言。 |
 
 测试资源放在测试夹具或构建目录中。UNC 管理共享不可用时，相关 C++ 用例返回 77，由 CTest 标记跳过。
 

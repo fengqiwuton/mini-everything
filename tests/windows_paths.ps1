@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory)][string]$App
 )
 $ErrorActionPreference = 'Stop'
@@ -33,6 +33,15 @@ try {
         throw "Unicode CLI search failed: $result"
     }
     if (($result -join "`n") -notmatch '1577836800') { throw 'File timestamp is not in Unix seconds' }
+    # 全部搜索使用非空开关，兼容 Windows PowerShell 5.1 丢弃空字符串参数的行为。
+    $result = Invoke-App search --all --db $db --type file --min-size 1 --sort size --desc
+    if ($NativeExit -ne 0 -or ($result -join "`n") -notmatch 'Returned 1 result') {
+        throw "PowerShell all-files filters failed: $result"
+    }
+    $result = Invoke-App search --all --db $db --type file --after 1577836799 --before 1577836801
+    if ($NativeExit -ne 0 -or ($result -join "`n") -notmatch 'Returned 1 result') {
+        throw "PowerShell all-files time filter failed: $result"
+    }
     # Alternate casing and trailing separators must resolve to the same root.
     # A forward separator avoids PowerShell 5.1's native quoting bug for trailing backslashes.
     Invoke-App scan ($root.ToUpperInvariant() + '/') --db $db

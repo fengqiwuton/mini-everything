@@ -1,4 +1,4 @@
-# 命令行使用手册（v0.5）
+# 命令行使用手册（v0.5.1）
 
 以下示例从仓库根目录运行，数据库目录需要事先存在，数据库必须在扫描范围外。
 
@@ -10,6 +10,8 @@ $db = ".\build\index.db"
 ```
 
 除 `--help`/`--version` 外，所有命令都必须带 `--db <path>`，可选 `--format tsv|json`，默认 TSV。未知、重复、越界或缺少值的选项会被拒绝；开关不带 `true`/`false` 值。搜索文本位于命令后第一个位置；`--draft` 等以 `--` 开头的字面文本和扩展名也支持。
+
+搜索全部条目时使用 `search --all --db ...`，然后组合类型、大小、时间、排序和分页条件。Windows PowerShell 5.1 和 PowerShell Legacy 原生参数模式会丢弃空字符串参数，因此示例不使用 `search ""`。其他调用方式保留空参数时，旧用法仍可用。`--all` 放在搜索文本的位置，不能与文本或 `--mode` 同用；搜索字面文件名 --all 或 --db 时，用 `search -- --all --db ...` 或 `search -- --db --db ...`。
 
 ## 扫描、进度和取消
 
@@ -54,7 +56,7 @@ Ctrl+C（Windows 也支持 Ctrl+Break）和超时请求都返回退出码 **130*
 & $app search "report.pdf" --db $db --mode exact --type file
 & $app search "report" --db $db --mode prefix --ext PDF --limit 50
 & $app search "\Projects\" --db $db --path --type file --sort mtime --desc
-& $app search "" --db $db --type file --min-size 1048576 --max-size 10485760 --sort size --desc
+& $app search --all --db $db --type file --min-size 1048576 --max-size 10485760 --sort size --desc
 & $app search "report" --db $db --after 1704067200 --before 1735689599 --limit 20 --offset 20 --format json
 ```
 

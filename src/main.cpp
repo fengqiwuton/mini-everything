@@ -28,9 +28,11 @@ struct Options {
 
 /// 输出版本、所有命令、主要参数范围和退出码，供 help/version 使用。
 void help() {
-    std::cout << "MiniEverything 0.5.0\n"
+    std::cout << "MiniEverything 0.5.1\n"
         "  mini-everything scan <directory> --db <index.db> [--incremental] [--progress]\n"
         "  mini-everything search <text> --db <index.db> [--ext pdf] [--limit 100]\n"
+        "  mini-everything search --all --db <index.db> [filters and sorting]\n"
+        "    Use --all instead of an empty string in PowerShell; -- <text> escapes reserved text.\n"
         "    [--mode substring|exact|prefix] [--type any|file|dir] [--path] [--show-ids]\n"
         "    [--sort name|path|size|mtime] [--desc] [--offset 0..1000000]\n"
         "    [--root <root-id>] [--under <node-id>] [--min-size <bytes>] [--max-size <bytes>]\n"
@@ -96,9 +98,16 @@ Options parse(const std::vector<std::string>& args) {
     if (args.empty()) throw std::invalid_argument("Expected a command; use --help");
     Options result; result.command=command(args[0]);
     std::size_t cursor=1;
-    if (has_argument(result.command)) {
-        if (args.size()<2) throw std::invalid_argument("Missing command argument");
-        result.argument=args[1]; cursor=2;
+    const bool all=result.command==Command::search && args.size()>1 && args[1]=="--all";
+    if(all) cursor=2;
+    else if (has_argument(result.command)) {
+        // --all 替代空文本；-- 允许按字面搜索 --all、--db 等保留文本。
+        const bool escaped=result.command==Command::search && args.size()>1 && args[1]=="--";
+        if(escaped) ++cursor;
+        if(args.size()<=cursor || (result.command==Command::search && !escaped && args[cursor]=="--db"))
+            throw std::invalid_argument(result.command==Command::search ?
+                "Missing search text; use search --all --db <index.db> to search all entries" : "Missing command argument");
+        result.argument=args[cursor++];
         if (result.command==Command::search) result.query.text=result.argument;
         else if (result.command!=Command::scan) result.id=integer(result.argument,1,std::numeric_limits<std::int64_t>::max(),"ID");
     }
@@ -162,6 +171,8 @@ Options parse(const std::vector<std::string>& args) {
         }
     }
     if (result.database.empty()) throw std::invalid_argument("--db is required");
+    if(all && seen.contains("--mode"))
+        throw std::invalid_argument("--all cannot be combined with --mode");
     if (result.query.min_size && result.query.max_size && *result.query.min_size>*result.query.max_size)
         throw std::invalid_argument("Minimum size exceeds maximum size");
     if (result.query.modified_after && result.query.modified_before && *result.query.modified_after>*result.query.modified_before)
