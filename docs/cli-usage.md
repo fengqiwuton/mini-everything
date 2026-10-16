@@ -13,6 +13,19 @@ $db = ".\build\index.db"
 
 搜索全部条目时使用 `search --all --db ...`，然后组合类型、大小、时间、排序和分页条件。Windows PowerShell 5.1 和 PowerShell Legacy 原生参数模式会丢弃空字符串参数，因此示例不使用 `search ""`。其他调用方式保留空参数时，旧用法仍可用。`--all` 放在搜索文本的位置，不能与文本或 `--mode` 同用；搜索字面文件名 --all 或 --db 时，用 `search -- --all --db ...` 或 `search -- --db --db ...`。
 
+## 终端显示
+
+在当前 PowerShell 中加载可选显示包装：
+
+~~~powershell
+. .\scripts\console.ps1
+mini search --all --db $db --type file --sort size --desc
+~~~
+
+点号后面需要一个空格；新终端需要重新加载。mini 默认调用 build/Release/mini-everything.exe，无需重新构建程序。每次执行用青色打印命令，用黄色标出结果区域，普通搜索自动以名称/字节/路径表格显示；耗时等诊断使用灰色，成功/错误退出状态使用绿/红色。路径较长时表格换行，零匹配也有明确提示。scan/watch 等命令保持逐行显示，watch 不等待结束才打印更新。
+
+mini 是供人工查看的显示包装，使用 Write-Host；自动化脚本需要读取原始 JSON/TSV 时，直接使用下文的 exe 调用方式。普通搜索追加 --format json 后生成表格；显式传入 --format 时显示调用者选择的原始格式。
+
 ## 扫描、进度和取消
 
 ```powershell

@@ -56,6 +56,7 @@
 | --- | --- |
 | [CMakeLists.txt](../CMakeLists.txt) | CMake 构建入口。指定项目版本与 C++20，下载并校验固定 SQLite 源码，定义数据库库、核心库、命令行和测试目标，配置 Windows/Unix 链接、编译警告、CTest 及安装规则。没有自行定义 CMake 函数。 |
 | [scripts/build.ps1](../scripts/build.ps1) | Windows 构建入口脚本。下载并校验 SQLite 压缩包，配置 Debug/Release 构建，编译并运行 CTest；命令失败时终止。按顺序执行，没有自行定义函数。 |
+| [scripts/console.ps1](../scripts/console.ps1) | 可选 PowerShell 显示包装。点加载后提供 mini 函数，用彩色标题/诊断/退出状态分隔命令；普通搜索转为表格，其他命令逐行显示。使用 UTF-8 BOM 兼容 Windows PowerShell 5.1；用于人工查看，不输出可供脚本管道读取的结果对象。 |
 | [scripts/benchmark.py](../scripts/benchmark.py) | 两版本性能与一致性基准。`main` 安排交替测量及 JSON 汇总；局部 `run_scan` 调用对应程序；局部 `verify` 校验格式、完整性、外键、元数据、父路径和根归属。支持新建/重扫分组，以及 `--candidate-incremental` 对候选版本的增量重扫测量。 |
 | [scripts/query_benchmark.py](../scripts/query_benchmark.py) | 只读 CLI 查询基准。交替测量 substring/exact/prefix 三种模式，记录 CLI 内部耗时、包含进程启动的 wall ms、JSON 结果行数并汇总，不扫描或修改被测索引。 |
 | [.github/workflows/build.yml](../.github/workflows/build.yml) | GitHub Actions 工作流。在 push/pull_request 时分别于 Windows MSVC 和 Ubuntu 环境配置、构建并运行测试，提供跨平台检查。 |
